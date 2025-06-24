@@ -1,6 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
 import "./Quiz.css";
-import getTriviaData from "../../assets/data";
+
+// Define the data fetching function in the same file to avoid import issues
+const getTriviaData = async () => {
+  try {
+    const response = await fetch("https://opentdb.com/api.php?amount=10&type=multiple");
+    const data = await response.json();
+    if (data.response_code === 0) {
+      return data.results;
+    } else {
+      return [];
+    }
+  } catch (error) {
+    console.error("Failed to fetch trivia data:", error);
+    return [];
+  }
+};
 
 const Quiz = () => {
   const [data, setData] = useState([]);
@@ -20,42 +35,41 @@ const Quiz = () => {
 
   // Load trivia data once
   useEffect(() => {
+    let isMounted = true; // Prevent state updates if component unmounts
+    
     const loadData = async () => {
       try {
-        console.log("Loading trivia data...");
-        
-        // Skip localStorage for now to avoid potential issues
         const trivia = await getTriviaData();
-        console.log("Trivia data loaded:", trivia);
         
-        if (trivia && trivia.length > 0) {
-          setData(trivia);
-          setLoading(false);
-        } else {
-          setError("No trivia data received");
-          setLoading(false);
+        if (isMounted) {
+          if (trivia && trivia.length > 0) {
+            setData(trivia);
+            setLoading(false);
+          } else {
+            setError("No trivia data received");
+            setLoading(false);
+          }
         }
       } catch (err) {
-        console.error("Error loading data:", err);
-        setError("Failed to load trivia data: " + err.message);
-        setLoading(false);
+        if (isMounted) {
+          setError("Failed to load trivia data");
+          setLoading(false);
+        }
       }
     };
+    
     loadData();
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Shuffle options when the index or data changes
   useEffect(() => {
-    if (data.length === 0) return;
+    if (data.length === 0 || !data[index]) return;
 
     const currentQuestion = data[index];
-    if (!currentQuestion) {
-      console.error("Current question is undefined for index:", index);
-      return;
-    }
-
-    console.log("Current question:", currentQuestion);
-
     const allAnswers = [
       currentQuestion.correct_answer,
       ...currentQuestion.incorrect_answers,
@@ -73,14 +87,13 @@ const Quiz = () => {
     // Reset option styles
     options_array.forEach((ref) => {
       if (ref.current) {
-        ref.current.classList.remove("correct");
-        ref.current.classList.remove("wrong");
+        ref.current.classList.remove("correct", "wrong");
       }
     });
   }, [index, data]);
 
   const checkAnswer = (e, answer) => {
-    if (lock) return;
+    if (lock || !data[index]) return;
 
     const correct = data[index].correct_answer;
     if (answer === correct) {
@@ -89,7 +102,7 @@ const Quiz = () => {
     } else {
       e.target.classList.add("wrong");
       const correctIndex = shuffledOptions.indexOf(correct);
-      if (options_array[correctIndex]?.current) {
+      if (correctIndex !== -1 && options_array[correctIndex]?.current) {
         options_array[correctIndex].current.classList.add("correct");
       }
     }
@@ -113,9 +126,6 @@ const Quiz = () => {
     setResult(false);
     setLock(false);
   };
-
-  // Debug rendering
-  console.log("Quiz render - loading:", loading, "error:", error, "data length:", data.length);
 
   if (loading) {
     return (
@@ -150,7 +160,7 @@ const Quiz = () => {
       {!result ? (
         <>
           <h2>
-            {index + 1}. <span dangerouslySetInnerHTML={{ __html: data[index].question }} />
+            {index + 1}. <span dangerouslySetInnerHTML={{ __html: data[index]?.question || "" }} />
           </h2>
           <ul>
             {shuffledOptions.map((option, i) => (
@@ -159,10 +169,12 @@ const Quiz = () => {
                 ref={options_array[i]}
                 onClick={(e) => checkAnswer(e, option)}
                 dangerouslySetInnerHTML={{ __html: option }}
-              ></li>
+              />
             ))}
           </ul>
-          <button onClick={next}>Next</button>
+          <button onClick={next} disabled={!lock}>
+            Next
+          </button>
           <div className="index">
             {index + 1} of {data.length} questions
           </div>
